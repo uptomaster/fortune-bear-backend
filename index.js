@@ -1,10 +1,9 @@
 require('dotenv').config();
 
 const express = require('express');
-const OpenAI = require('openai');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const OpenAI = require('openai');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,22 +19,12 @@ const openai = new OpenAI({
 });
 
 /* =====================
-   SQLite 후기 DB
+   Supabase 설정
 ===================== */
-const db = new sqlite3.Database(
-  path.join(__dirname, 'reviews.db')
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
 );
-
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS reviews (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nickname TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-});
 
 /* =====================
    포춘베어 리스크 API
@@ -97,48 +86,44 @@ app.post('/api/risk', async (req, res) => {
 /* =====================
    후기 저장 API
 ===================== */
-app.post('/api/reviews', (req, res) => {
+app.post('/api/reviews', async (req, res) => {
   const { nickname, content } = req.body;
 
   if (!nickname || !content) {
     return res.status(400).json({ success: false });
   }
 
-  db.run(
-    `INSERT INTO reviews (nickname, content) VALUES (?, ?)`,
-    [nickname, content],
-    err => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ success: false });
-      }
-      res.json({ success: true });
-    }
-  );
+  const { error } = await supabase
+    .from('reviews')
+    .insert([{ nickname, content }]);
+
+  if (error) {
+    console.error(error);
+    return res.status(500).json({ success: false });
+  }
+
+  res.json({ success: true });
 });
 
 /* =====================
    후기 조회 API
 ===================== */
-app.get('/api/reviews', (req, res) => {
-  db.all(
-    `SELECT nickname, content
-     FROM reviews
-     ORDER BY id DESC
-     LIMIT 5`,
-    [],
-    (err, rows) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ success: false });
-      }
+app.get('/api/reviews', async (req, res) => {
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('nickname, content')
+    .order('id', { ascending: false })
+    .limit(5);
 
-      res.json({
-        success: true,
-        reviews: rows,
-      });
-    }
-  );
+  if (error) {
+    console.error(error);
+    return res.status(500).json({ success: false });
+  }
+
+  res.json({
+    success: true,
+    reviews: data,
+  });
 });
 
 /* =====================
