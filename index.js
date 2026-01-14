@@ -46,8 +46,6 @@ app.post('/api/risk', async (req, res) => {
 
 출력 형식은 반드시 아래를 따른다곰.
 
-출력 형식:
-
 오늘의 리스크
 (명사형 또는 상태 표현, 최대 8자)
 
@@ -74,14 +72,9 @@ app.post('/api/risk', async (req, res) => {
     });
 
     const message = completion.choices?.[0]?.message?.content;
-    if (!message) {
-      throw new Error('Invalid OpenAI response');
-    }
+    if (!message) throw new Error('Invalid OpenAI response');
 
-    res.json({
-      success: true,
-      result: message,
-    });
+    res.json({ success: true, result: message });
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -92,7 +85,7 @@ app.post('/api/risk', async (req, res) => {
 });
 
 /* =====================================================
-   2️⃣ 포춘베어 결정 API (AI 기반)
+   2️⃣ 포춘베어 결정 API (편향 제거 버전)
 ===================================================== */
 app.post('/api/decide', async (req, res) => {
   const { optionA, optionB } = req.body;
@@ -104,49 +97,38 @@ app.post('/api/decide', async (req, res) => {
     });
   }
 
+  /* ✅ 서버에서 먼저 공정하게 선택 */
+  const picked = Math.random() < 0.5 ? optionA : optionB;
+
   try {
     const systemPrompt = `
 너는 '포춘베어'다.
 
 사람이 두 가지 선택지 사이에서 고민할 때,
 정답을 내려주는 존재는 아니다곰.
-다만 지금 상황에서
-한쪽을 선택해도 괜찮아 보이는 이유를
-조용히 말해주는 곰이다곰.
+이미 정해진 선택이
+지금 상황에서 괜찮아 보이는 이유를
+조용히 설명해주는 곰이다곰.
 
-너는 설득하지 않고,
-겁주거나 단정하지 않는다곰.
-불안이나 압박을 주지 않는다곰.
-
-출력 규칙은 반드시 지킨다곰.
-
-출력 형식:
+출력 형식은 반드시 아래를 따른다곰.
 
 포춘베어의 결정
-(선택된 단어 하나를 그대로 출력)
+${picked}
 
 포춘베어의 생각
-(왜 이 선택이 지금 어울려 보이는지 2문장)
+(왜 "${picked}" 이(가) 지금 어울려 보이는지 2문장)
 
-필수 규칙:
-- 선택된 단어를 반드시 문장 안에 포함할 것
-- 두 문장 모두 말끝을 반드시 "~곰"으로 끝낼 것
-- "~인 것 같다곰", "~해도 괜찮아 보인다곰" 같은 표현 허용
-- 명령형, 확신, 강요 금지
-- 1인칭 화법 유지
-- 담담하고 관찰하는 톤 유지
-
-주의:
-- 선택지를 일반화하거나 바꾸지 말 것
-- 선택 단어를 다른 표현으로 치환하지 말 것
-- 이유는 현실적이고 가볍게 설명할 것
+규칙:
+- 반드시 "${picked}" 단어를 그대로 포함할 것
+- 두 문장 모두 말끝을 "~곰"으로 끝낼 것
+- 단정, 명령, 과장 금지
+- 1인칭 화법
+- 담담한 관찰 톤 유지
 `;
 
     const userPrompt = `
-선택지 A: ${optionA}
-선택지 B: ${optionB}
-
-지금 상황에서 하나를 골라서 이야기해줘곰.
+선택은 이미 "${picked}"로 정해졌다곰.
+왜 이 선택이 괜찮아 보이는지만 이야기해줘곰.
 `;
 
     const completion = await openai.chat.completions.create({
@@ -159,14 +141,9 @@ app.post('/api/decide', async (req, res) => {
     });
 
     const message = completion.choices?.[0]?.message?.content;
-    if (!message) {
-      throw new Error('Invalid OpenAI response');
-    }
+    if (!message) throw new Error('Invalid OpenAI response');
 
-    res.json({
-      success: true,
-      result: message,
-    });
+    res.json({ success: true, result: message });
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -215,10 +192,7 @@ app.get('/api/reviews', async (req, res) => {
     return res.status(500).json({ success: false });
   }
 
-  res.json({
-    success: true,
-    reviews: data,
-  });
+  res.json({ success: true, reviews: data });
 });
 
 /* =====================
