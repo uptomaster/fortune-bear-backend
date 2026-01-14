@@ -85,7 +85,7 @@ app.post('/api/risk', async (req, res) => {
 });
 
 /* =====================================================
-   2️⃣ 포춘베어 결정 API (편향 제거 버전)
+   2️⃣ 포춘베어 결정 API
 ===================================================== */
 app.post('/api/decide', async (req, res) => {
   const { optionA, optionB } = req.body;
@@ -97,7 +97,6 @@ app.post('/api/decide', async (req, res) => {
     });
   }
 
-  /* ✅ 서버에서 먼저 공정하게 선택 */
   const picked = Math.random() < 0.5 ? optionA : optionB;
 
   try {
@@ -176,23 +175,33 @@ app.post('/api/reviews', async (req, res) => {
 });
 
 /* =====================================================
-   4️⃣ 후기 조회 API
+   4️⃣ 후기 조회 API (페이지네이션)
 ===================================================== */
 app.get('/api/reviews', async (req, res) => {
+  const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 5;
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
 
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('reviews')
-    .select('nickname, content, created_at')
+    .select('nickname, content, created_at', { count: 'exact' })
     .order('id', { ascending: false })
-    .limit(limit);
+    .range(from, to);
 
   if (error) {
     console.error(error);
     return res.status(500).json({ success: false });
   }
 
-  res.json({ success: true, reviews: data });
+  res.json({
+    success: true,
+    reviews: data,
+    page,
+    limit,
+    total: count,
+    hasMore: to + 1 < count,
+  });
 });
 
 /* =====================
