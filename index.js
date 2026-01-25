@@ -8,7 +8,14 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// CORS 설정 - 모든 출처 허용 (개발용, 나중에 필요 시 제한 가능)
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+}));
+app.options('*', cors());
+
 app.use(express.json());
 
 /* =====================
@@ -77,9 +84,9 @@ luckScore가 높을수록 기회, 추진, 긍정 흐름을 강조한다곰.
 
 사고·재난·질병 표현 절대 금지다곰.
 
-**모든 문장은 반드시 1인칭 + "~곰"으로 끝난다곰.**
+모든 문장은 반드시 1인칭 + "~곰"으로 끝난다곰.
 
-**반드시 아래 형식의 순수 JSON만 출력한다곰. 다른 글자, 설명, 코드블록 절대 넣지 마라곰:**
+반드시 아래 형식의 순수 JSON만 출력한다곰. 다른 글자, 설명, 코드블록 절대 넣지 마라곰:
 
 {
   "luckScore": number,
@@ -94,10 +101,29 @@ luckScore가 높을수록 기회, 추진, 긍정 흐름을 강조한다곰.
 ===================================================== */
 app.post('/api/risk', async (req, res) => {
   try {
+    // 오늘 요일 & 날짜 정보 추가
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0: 일요일 ~ 6: 토요일
+    const weekDays = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
+    const todayDay = weekDays[dayOfWeek];
+
+    // 특별 날짜 체크 (예시)
+    const specialDays = {
+      '01-01': '새해 복 많이 받는 날',
+      '02-14': '발렌타인데이 연애운',
+      '12-25': '크리스마스 특별 운세',
+      // 필요하면 더 추가
+    };
+    const monthDay = now.toISOString().slice(5, 10); // MM-DD 형식
+    const theme = specialDays[monthDay] || `${todayDay} 테마`;
+
+    // 프롬프트에 테마 추가
+    const enhancedPrompt = systemPrompt + `\n오늘은 ${theme}을 중심으로 운세를 말해줘곰.`;
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: enhancedPrompt },
         { role: 'user', content: '오늘 하루 흐름을 알려줘곰.' },
       ],
       temperature: 0.8,
@@ -145,7 +171,11 @@ app.post('/api/risk', async (req, res) => {
 
     res.json({
       success: true,
-      ...finalData
+      luckScore: finalData.luckScore,
+      todayFlow: finalData.todayFlow,
+      bearComment: finalData.bearComment,
+      smallTip: finalData.smallTip,
+      theme: theme  // 프론트로 테마도 보내줌
     });
 
   } catch (err) {
@@ -158,7 +188,9 @@ app.post('/api/risk', async (req, res) => {
   }
 });
 
-// 나머지 부분은 그대로 (decide, reviews 등)
+/* =====================================================
+   2️⃣ 포춘베어 선택 결정 API
+===================================================== */
 app.post('/api/decide', async (req, res) => {
   const { optionA, optionB } = req.body;
 
@@ -220,6 +252,9 @@ ${picked}
   }
 });
 
+/* =====================================================
+   3️⃣ 후기 저장 API
+===================================================== */
 app.post('/api/reviews', async (req, res) => {
   const { nickname, content } = req.body;
 
@@ -239,6 +274,9 @@ app.post('/api/reviews', async (req, res) => {
   res.json({ success: true });
 });
 
+/* =====================================================
+   4️⃣ 후기 조회 API
+===================================================== */
 app.get('/api/reviews', async (req, res) => {
   const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 5;
