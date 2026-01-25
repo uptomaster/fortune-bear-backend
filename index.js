@@ -8,7 +8,7 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS 설정 - 모든 출처 허용 (개발용, 나중에 필요 시 제한 가능)
+// CORS 설정
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -34,7 +34,7 @@ const supabase = createClient(
 );
 
 /* =====================
-   안전 JSON 파서 (더 강력하게)
+   안전 JSON 파서 (유지 및 강화)
 ===================== */
 function safeParseJSON(raw) {
   if (!raw) throw new Error('응답이 비어있습니다');
@@ -57,37 +57,25 @@ function safeParseJSON(raw) {
 }
 
 /* =====================
-   포춘베어 운세 프롬프트 (더 엄격하게 JSON 요구)
+   포춘베어 운세 프롬프트 (점수 주입형으로 개조)
 ===================== */
 const systemPrompt = `
 너는 '포춘베어'다곰.
 
-오늘 하루의 흐름을 관찰하듯 말한다곰.
-과장하지 않고 현실적인 톤 유지다곰.
+사용자가 제공하는 luckScore에 맞춰 오늘 하루의 흐름을 관찰하듯 말한다곰.
+절대 점수를 네가 수정하지 말고, 주어진 점수의 분위기에 100% 맞춰야 한다곰.
 
-먼저 오늘의 luckScore를 0~100 사이 정수로 정한다곰.
+구간별 가이드:
+0~20 매우 답답하고 정체된 흐름 (부정적/정적인 표현)
+21~40 신중하고 조심스러운 하루
+41~60 무난하고 평범한 일상
+61~80 운이 따르고 기분 좋은 흐름
+81~100 매우 강력한 행운과 성취 (긍정적/동적인 표현)
 
-구간별 의미:
-0~20 매우 답답한 흐름
-21~40 조심이 필요한 날
-41~60 평범한 하루
-61~80 무난하고 안정적
-81~100 매우 좋은 흐름
+모든 문장은 반드시 1인칭 + "~곰"으로 끝낸다곰.
+사고·재난·질병 표현은 절대 금지다곰.
 
-오늘은 연애, 금전, 인간관계, 일상 중 하나를 중심 주제로 삼는다곰.
-
-luckScore가 낮을수록 막힘, 피로감, 신중함을 강조한다곰.
-luckScore가 높을수록 기회, 추진, 긍정 흐름을 강조한다곰.
-
-같은 표현과 문장 구조를 반복하지 않는다곰.
-매번 관점과 비유를 바꾼다곰.
-
-사고·재난·질병 표현 절대 금지다곰.
-
-모든 문장은 반드시 1인칭 + "~곰"으로 끝난다곰.
-
-반드시 아래 형식의 순수 JSON만 출력한다곰. 다른 글자, 설명, 코드블록 절대 넣지 마라곰:
-
+반드시 아래 형식의 순수 JSON만 출력한다곰:
 {
   "luckScore": number,
   "todayFlow": "최대 8자 이내의 짧은 제목",
@@ -101,90 +89,68 @@ luckScore가 높을수록 기회, 추진, 긍정 흐름을 강조한다곰.
 ===================================================== */
 app.post('/api/risk', async (req, res) => {
   try {
-    // 오늘 요일 & 날짜 정보 추가
+    // [핵심 해결책] 서버에서 먼저 점수를 0~100 사이로 완전 랜덤하게 생성
+    const assignedScore = Math.floor(Math.random() * 101);
+
     const now = new Date();
-    const dayOfWeek = now.getDay(); // 0: 일요일 ~ 6: 토요일
+    const dayOfWeek = now.getDay();
     const weekDays = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
     const todayDay = weekDays[dayOfWeek];
 
-    // 특별 날짜 체크 (예시)
     const specialDays = {
       '01-01': '새해 복 많이 받는 날',
       '02-14': '발렌타인데이 연애운',
       '12-25': '크리스마스 특별 운세',
-      // 필요하면 더 추가
     };
-    const monthDay = now.toISOString().slice(5, 10); // MM-DD 형식
+    const monthDay = now.toISOString().slice(5, 10);
     const theme = specialDays[monthDay] || `${todayDay} 테마`;
 
-    // 프롬프트에 테마 추가
-    const enhancedPrompt = systemPrompt + `\n오늘은 ${theme}을 중심으로 운세를 말해줘곰.`;
-
+    // AI에게 정해진 점수를 강제로 부여
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: enhancedPrompt },
-        { role: 'user', content: '오늘 하루 흐름을 알려줘곰.' },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `오늘의 테마는 ${theme}이고, luckScore는 반드시 ${assignedScore}점으로 작성해줘곰.` },
       ],
-      temperature: 0.8,
+      response_format: { type: "json_object" }, // JSON 모드 강제
+      temperature: 1.0, // 창의성 최대화
       max_tokens: 300,
     });
 
     const raw = completion.choices?.[0]?.message?.content?.trim();
-    if (!raw) {
-      throw new Error('OpenAI로부터 응답이 비어있습니다');
-    }
-
     console.log('[Raw AI Response]', raw);
 
     let parsed;
     try {
       parsed = safeParseJSON(raw);
     } catch (parseErr) {
-      console.error('파싱 실패:', parseErr.message);
-      // 파싱 실패 시 기본값 강제 생성
+      console.error('파シング 실패:', parseErr.message);
+      // 파싱 실패 시에도 미리 정한 assignedScore를 사용해 흐름 생성
       parsed = {
-        luckScore: Math.floor(Math.random() * 81) + 20, // 20~100 사이 랜덤
-        todayFlow: "평범한 흐름",
-        bearComment: "오늘은 별다른 일 없이 지나갈 것 같다곰.\n그냥 무난하게 하루를 보내는 게 좋겠다곰.",
-        smallTip: "물 한 잔 더 마셔보는 것도 좋을 것 같다곰.\n조금 천천히 움직여보자곰."
+        luckScore: assignedScore,
+        todayFlow: assignedScore > 50 ? "기분 좋은 흐름" : "조용한 하루",
+        bearComment: "곰이 잠시 꿀을 먹으러 갔다곰.\n그래도 오늘 하루는 무사히 지나갈 거다곰.",
+        smallTip: "기지개를 한번 켜보자곰.\n따뜻한 차 한 잔이 도움될 거다곰."
       };
     }
 
-    // 필드 누락/잘못된 경우 보정
+    // 최종 데이터 보정 (assignedScore를 최우선 적용)
     const finalData = {
-      luckScore: Number.isInteger(parsed.luckScore) && parsed.luckScore >= 0 && parsed.luckScore <= 100 
-        ? parsed.luckScore 
-        : Math.floor(Math.random() * 81) + 20,
-      todayFlow: typeof parsed.todayFlow === 'string' && parsed.todayFlow.trim() 
-        ? parsed.todayFlow.trim().slice(0, 8) 
-        : "오늘의 흐름",
-      bearComment: typeof parsed.bearComment === 'string' && parsed.bearComment.trim() 
-        ? parsed.bearComment.trim() 
-        : "곰이 오늘 좀 조용하네곰.\n그냥 쉬엄쉬엄 가보자곰.",
-      smallTip: typeof parsed.smallTip === 'string' && parsed.smallTip.trim() 
-        ? parsed.smallTip.trim() 
-        : "작은 일에 감사하는 마음을 가져보자곰.\n하루 잘 마무리하자곰."
+      luckScore: assignedScore,
+      todayFlow: (parsed.todayFlow || "오늘의 흐름").slice(0, 8),
+      bearComment: typeof parsed.bearComment === 'string' ? parsed.bearComment : "곰이 오늘 조용하네곰.\n쉬엄쉬엄 가보자곰.",
+      smallTip: typeof parsed.smallTip === 'string' ? parsed.smallTip : "작은 행복을 찾아보자곰.\n하루 잘 마무리하자곰."
     };
-
-    console.log('[Parsed & Fixed Data]', finalData);
 
     res.json({
       success: true,
-      luckScore: finalData.luckScore,
-      todayFlow: finalData.todayFlow,
-      bearComment: finalData.bearComment,
-      smallTip: finalData.smallTip,
-      theme: theme  // 프론트로 테마도 보내줌
+      ...finalData,
+      theme: theme
     });
 
   } catch (err) {
-    console.error('Risk API error:', err.message);
-    console.error('Full error stack:', err.stack);
-    res.status(500).json({
-      success: false,
-      message: '포춘베어가 흐름을 잠시 놓쳤다곰.',
-    });
+    console.error('Risk API error:', err.stack);
+    res.status(500).json({ success: false, message: '포춘베어가 흐름을 잠시 놓쳤다곰.' });
   }
 });
 
@@ -193,62 +159,22 @@ app.post('/api/risk', async (req, res) => {
 ===================================================== */
 app.post('/api/decide', async (req, res) => {
   const { optionA, optionB } = req.body;
-
   if (!optionA || !optionB) {
-    return res.status(400).json({
-      success: false,
-      message: '선택지는 두 개 모두 필요하다곰.',
-    });
+    return res.status(400).json({ success: false, message: '선택지 두 개 다 달라곰.' });
   }
 
   const picked = Math.random() < 0.5 ? optionA : optionB;
-
-  const decidePrompt = `
-너는 '포춘베어'다곰.
-
-이미 정해진 선택이 지금 흐름에서 자연스러워 보이는 이유를
-조용히 설명해준다곰.
-
-출력 형식:
-
-포춘베어의 결정
-${picked}
-
-포춘베어의 생각
-(2문장, 모두 "~곰")
-
-규칙:
-- "${picked}" 반드시 포함
-- 반복 표현 금지
-- 과장 금지
-- 관찰 톤 유지
-`;
+  const decidePrompt = `포춘베어로서 "${picked}"를 선택한 이유를 2문장(~곰)으로 설명해줘곰.`;
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: decidePrompt },
-        { role: 'user', content: '이 선택이 왜 괜찮아 보이는지 말해줘곰.' },
-      ],
+      messages: [{ role: 'system', content: "너는 포춘베어다곰." }, { role: 'user', content: decidePrompt }],
       temperature: 0.85,
-      max_tokens: 250,
     });
-
-    const message = completion.choices?.[0]?.message?.content;
-    if (!message) {
-      throw new Error('OpenAI로부터 응답이 비어있습니다');
-    }
-
-    res.json({ success: true, result: message });
-
+    res.json({ success: true, result: `포춘베어의 결정\n${picked}\n\n포춘베어의 생각\n${completion.choices[0].message.content}` });
   } catch (err) {
-    console.error('Decide API error:', err.message);
-    console.error('Full error stack:', err.stack);
-    res.status(500).json({
-      success: false,
-      message: '곰이 결정을 조금 미루고 싶어한다곰.',
-    });
+    res.status(500).json({ success: false, message: '곰이 결정을 못 하겠다곰.' });
   }
 });
 
@@ -257,20 +183,10 @@ ${picked}
 ===================================================== */
 app.post('/api/reviews', async (req, res) => {
   const { nickname, content } = req.body;
+  if (!nickname || !content) return res.status(400).json({ success: false });
 
-  if (!nickname || !content) {
-    return res.status(400).json({ success: false });
-  }
-
-  const { error } = await supabase
-    .from('reviews')
-    .insert([{ nickname, content }]);
-
-  if (error) {
-    console.error('Review insert error:', error);
-    return res.status(500).json({ success: false });
-  }
-
+  const { error } = await supabase.from('reviews').insert([{ nickname, content }]);
+  if (error) return res.status(500).json({ success: false });
   res.json({ success: true });
 });
 
@@ -280,7 +196,6 @@ app.post('/api/reviews', async (req, res) => {
 app.get('/api/reviews', async (req, res) => {
   const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 5;
-
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
@@ -290,24 +205,10 @@ app.get('/api/reviews', async (req, res) => {
     .order('id', { ascending: false })
     .range(from, to);
 
-  if (error) {
-    console.error('Review fetch error:', error);
-    return res.status(500).json({ success: false });
-  }
-
-  res.json({
-    success: true,
-    reviews: data,
-    page,
-    limit,
-    total: count,
-    hasMore: (to + 1) < count,
-  });
+  if (error) return res.status(500).json({ success: false });
+  res.json({ success: true, reviews: data, total: count, hasMore: (to + 1) < count });
 });
 
-/* =====================
-   서버 시작
-===================== */
 app.listen(PORT, () => {
   console.log(`FortuneBear API running on port ${PORT}`);
 });
